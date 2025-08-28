@@ -3,6 +3,7 @@ use eyre::{Context, ContextCompat, Result};
 use ndarray::Array2;
 use ort::session::Session;
 use std::path::Path;
+use ort::value::Value;
 
 #[derive(Debug)]
 pub struct EmbeddingExtractor {
@@ -22,8 +23,15 @@ impl EmbeddingExtractor {
         let samples = &samples_f32;
 
         let features: Array2<f32> = knf_rs::compute_fbank(samples)?;
-        let features = features.insert_axis(ndarray::Axis(0)); // Add batch dimension
-        let inputs = ort::inputs! ["feats" => features.view()]?;
+        // Add batch dimension
+        let features = features.insert_axis(ndarray::Axis(0));
+        let feats_view = Value::from_array(features.view())?;
+
+        //Removed ? because ort::inputs! no longer return a Result.
+        //let inputs = ort::inputs! ["feats" => features.view()];
+        let inputs = vec![("feats", feats_view.upcast_ref())];
+
+        ////////////////////////////////////////////////////////
 
         let ort_outs = self.session.run(inputs)?;
         let ort_out = ort_outs

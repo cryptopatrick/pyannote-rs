@@ -2,6 +2,7 @@ use crate::session;
 use eyre::{Context, ContextCompat, Result};
 use ndarray::{ArrayBase, Axis, IxDyn, ViewRepr};
 use std::{cmp::Ordering, collections::VecDeque, path::Path};
+use ort::value::Value;
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -59,11 +60,13 @@ pub fn get_segments<P: AsRef<Path>>(
             let array = ndarray::Array1::from_iter(window.iter().map(|&x| x as f32));
             let array = array.view().insert_axis(Axis(0)).insert_axis(Axis(1));
 
-            // Handle potential errors during the session and input processing
-            let inputs = match ort::inputs![array.into_dyn()] {
-                Ok(inputs) => inputs,
+            let array_view_dyn = array.view().into_dyn();
+            let input_val = match Value::from_array(array_view_dyn) {
+                Ok(val) => val,
                 Err(e) => return Some(Err(eyre::eyre!("Failed to prepare inputs: {:?}", e))),
             };
+
+            let inputs = vec![("input", input_val.upcast_ref())];
 
             let ort_outs = match session.run(inputs) {
                 Ok(outputs) => outputs,
@@ -83,7 +86,9 @@ pub fn get_segments<P: AsRef<Path>>(
                 Err(e) => return Some(Err(eyre::eyre!("Tensor extraction error: {:?}", e))),
             };
 
-            for row in ort_out.outer_iter() {
+            let view = ort_out;
+
+            for row in view.outer_iter() {
                 for sub_row in row.axis_iter(Axis(0)) {
                     let max_index = match find_max_index(sub_row) {
                         Ok(index) => index,
